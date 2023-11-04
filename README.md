@@ -1,3 +1,5 @@
+#README
+
 R project: analyzing crime in San Francisco
 
 Author: Jackson Kent
