@@ -1,0 +1,223 @@
+---
+title: "practice2"
+author: "Jackson"
+date: "2023-11-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(flexdashboard)
+library(ggridges)
+library(shiny)
+library(visdat)
+library(plotly)
+library(lubridate)
+```
+
+```{r}
+
+incidents <- read_csv("data/raw/incident_reports_new.csv") |>
+  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
+         p_district = `Police District`, category = `Incident Category`, lat = `Latitude`, long = `Longitude`)
+incidents <- incidents |>
+  mutate(category = case_when(
+    category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
+    category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
+    TRUE ~ category
+  ))
+
+incidents |>
+  filter(category == "Human Trafficking (B)")
+
+```
+
+```{r}
+violent_crimes <- incidents |> 
+  filter(category %in% c("Homicide", "Rape", "Robbery", "Assault",
+                         "Human Trafficking (B)", 
+                         "Human Trafficking (A)"))
+
+property_crimes <- incidents |> 
+  filter(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson"))
+
+part_1 = incidents |>
+  filter(category %in% violent_crimes | property_crimes)
+
+```
+
+
+```{r}
+this_year = year(today())
+last_year = this_year - 1
+two_years = last_year - 1
+three_years = two_years - 1
+```
+
+```{r}
+
+###
+three_yr_avg <- incidents |> 
+  filter(year %in% c(last_year, two_years, three_years), category %in% property_crimes$category) %>%
+  group_by(category, year) |> 
+  summarize(count = n()) |> 
+  ungroup() |>
+  group_by(category) |> 
+  summarize(avg = mean(count))
+
+per_year <- incidents |>
+  filter(year %in% c(this_year, last_year, two_years, three_years), category %in% property_crimes$category) %>%
+  group_by(category, year) |> 
+  summarize(count = n())
+
+ggplotly(per_year |>
+  inner_join(three_yr_avg, by = "category") |>
+  filter(year == this_year | year == last_year) |>
+  mutate(this_year = year == this_year) |>
+  ggplot(aes(x = category, y = ifelse(this_year, count, avg), fill = as.factor(year))) +
+  geom_col(position = "dodge", color = "black") +
+  labs(title = "Comparison of Total Counts for Each Category",
+       x = "Category",
+       y = "Incident Count",
+       fill = "Year") +
+  scale_fill_brewer(palette = "Accent") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.title = element_blank()
+    )
+  )
+
+?theme
+###
+
+```
+
+```{r}
+df <- incidents |>
+  filter(category %in% violent_crimes$category) |>
+  group_by(category, year) |>
+  summarize(n = n(), .groups = "drop") |>
+  group_by(category) |>
+  summarize(avg = mean(n)) |>
+  ggplot(aes(category, n)) +
+  geom_col()
+  
+```
+
+```{r}
+ggplotly(ggplot(violent_crimes, aes(x = factor(year), fill =category)) +
+  geom_bar(stat = "count", position = "dodge") +
+  labs(title = "Number of Violent Crimes Over the Years",
+       x = "Year",
+       y = "Count") +
+  scale_fill_brewer(palette = "Set3"))
+```
+
+```{r}
+
+long_data <- per_year |>
+  inner_join(three_year_avg, by = "category") |>
+  pivot_longer(cols = c(count, avg),
+               names_to = "value_type",
+               values_to = "value") |>
+  mutate(is_this_year = ifelse(value_type == "count" & year == this_year, TRUE, FALSE))
+
+ggplot(long_data, aes(x = category, y = value, fill = as.factor(year), color = value_type)) +
+  geom_col(position = "dodge") +
+  labs(title = "Comparison of Total Counts for Each Category",
+       x = "Category",
+       y = "Incident Count",
+       fill = "Year",
+       color = "Type") +
+  scale_fill_brewer(palette = "Accent") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1))
+
+avg <- per_year |>
+  group_by(category) |> 
+  summarize(avg = mean(count))
+
+combined_data <- per_year |>
+  left_join(avg, by = "category")
+
+combined_data |>
+  mutate(violent = category %in% violent_crimes)
+  
+
+# Create a bar plot
+p <- ggplot(combined_data, aes(x = category, y = count, fill = as.factor(year))) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  geom_point(aes(y = avg), shape = 4, size = 5) +
+  labs(title = "Comparison of Total Counts for Each Category",
+       x = "Category",
+       y = "Incident Count",
+       fill = "Year") +
+  scale_fill_brewer(palette = "Accent") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+View(mpg)
+ggplotly(p)
+```
+
+
+```{r}
+compare_crimes <- function(incidents, crime_type, start_year, end_year) {
+  # Filter data based on crime_type
+  crime_data <- incidents %>% filter(category %in% crime_type)
+
+  # Define date range
+  this_year <- year(today())
+  last_year <- this_year - 1
+  two_years <- last_year - 1
+  three_years <- two_years - 1
+
+  # Calculate average over the specified date range
+  avg_data <- crime_data %>%
+    filter(year %in% seq(end_year, start_year, -1)) %>%
+    group_by(category, year) %>%
+    summarize(count = n()) %>%
+    ungroup() %>%
+    group_by(category) %>%
+    summarize(avg = mean(count))
+
+  # Calculate count for this year and last year
+  count_data <- crime_data %>%
+    filter(year %in% c(this_year, last_year)) %>%
+    group_by(category, year) %>%
+    summarize(count = n())
+
+  # Combine data
+  combined_data <- count_data %>%
+    inner_join(avg_data, by = "category") %>%
+    mutate(this_year = year == this_year) %>%
+    mutate(legend_label = ifelse(
+    year == year.y,
+    as.character(year.x),
+    paste(year.x, year.y, sep = "-")
+  ))
+
+  # Create and return plot
+  ggplotly(ggplot(combined_data, aes(x = category, y = ifelse(this_year, count, avg), fill = as.factor(year))) +
+    geom_col(position = "dodge", color = "black") +
+    labs(title = "Comparison of Total Counts for Each Category",
+         x = "Category",
+         y = "Incident Count",
+         fill = "Year") +
+    scale_fill_brewer(palette = "Accent", name = NULL, labels = legend_label) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.title = element_blank()))
+}
+
+# Example usage:
+compare_crimes(incidents, property_crimes$category, 2021, 2022)
+```
+
