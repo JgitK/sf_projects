@@ -7,7 +7,7 @@ shinyServer(function(input, output) {
     selected_crimes <- if (input$crime_type == "Property Crime") property_crimes$category
     else violent_crimes$category
     
-    filtered_data <- incidents %>%
+    filtered_data <- new_data %>%
       filter(neighborhood == input$neighborhood, category %in% selected_crimes)
     
     three_yr_avg <- filtered_data %>%

@@ -6,7 +6,7 @@ shinyUI(fluidPage(
   
   sidebarLayout(
     sidebarPanel(
-      selectInput("neighborhood", "Select Neighborhood", choices = unique(incidents$neighborhood)),
+      selectInput("neighborhood", "Select Neighborhood", choices = unique(new_data$neighborhood)),
       radioButtons("crime_type", "Select Crime Type", choices = c("Property Crime", "Violent Crime"))
     ),
     

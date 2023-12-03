@@ -1,7 +1,7 @@
 source("code/sfpd_source.R")
 
 ###
-three_yr_avg <- new_data |> 
+yr_span_avg <- new_data |> 
   filter(year %in% c(last_year, two_years, three_years), category %in% property_crimes$category) %>%
   group_by(category, year) |> 
   summarize(count = n()) |> 
@@ -14,8 +14,8 @@ per_year <- new_data |>
   group_by(category, year) |> 
   summarize(count = n())
 
-p1 <- per_year |>
-           inner_join(three_yr_avg, by = "category") |>
+ p1 <- per_year |>
+           inner_join(yr_span_avg, by = "category") |>
            filter(year == this_year | year == last_year) |>
            mutate(this_year = year == this_year) |>
            ggplot(aes(x = category, y = ifelse(this_year, count, avg), fill = as.factor(year))) +
@@ -24,7 +24,6 @@ p1 <- per_year |>
                 x = "Category",
                 y = "Incident Count",
                 fill = "Year") +
-           
            scale_fill_manual(
              values = c("2023" = "#AD7D2E", 
                         "2022" = "#365188")

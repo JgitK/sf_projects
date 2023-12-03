@@ -1,5 +1,7 @@
 source("code/sfpd_source.R")
 
+ls()
+
 # font_add_google(name = "Bree Serif",
 #                 family = "breeserif")
 # font_add_google(name = "Source Serif 4",
@@ -9,25 +11,46 @@ source("code/sfpd_source.R")
 # ?font_add_google
 
 ### Month of Dec last yr
-last_dec <- combined_data |>
+# last_dec <- combined_data |>
+#   filter(month == "Dec") |>
+#   mutate(year = year - 1,
+#          month = "last_Dec") 
+# 
+# ### Month of Jan next yr
+# next_jan <- combined_data |>
+#   filter(month == "Jan") |>
+#   mutate(year = year + 1,
+#          month = "next_Jan") |>
+#   filter(year != this_year)
+
+ lineplot_data <- new_data |>
+   mutate(month = month(date, label = T),
+                   month = factor(month.abb[month], levels = month.abb)) |>
+   filter(date < floor_date(today(), "month")) |>
+   group_by(year, month) |>
+   summarize(count = n(),
+             avg = mean(count),
+             category = category)
+
+last_dec <- lineplot_data |>
   filter(month == "Dec") |>
   mutate(year = year - 1,
          month = "last_Dec") 
 
 ### Month of Jan next yr
-next_jan <- combined_data |>
+next_jan <- lineplot_data |>
   filter(month == "Jan") |>
   mutate(year = year + 1,
          month = "next_Jan") |>
   filter(year != this_year)
 
 ### Concatenate
-p2 <- bind_rows(last_dec, combined_data, next_jan) |> 
+p2 <- bind_rows(last_dec, lineplot_data, next_jan) |> 
   mutate(month = factor(month, levels =c("last_Dec", month.abb, "next_Jan")),
          month_number = as.numeric(month) - 1) |>
   filter(year != 2018) |>
   ggplot(aes(month_number, count, group = year, color = year)) +
-  geom_hline(yintercept = mean(combined_data$avg), color = "#CCCCCC") +
+  geom_hline(yintercept = mean(lineplot_data$avg), color = "#CCCCCC") +
   geom_line() +
   geom_point(shape = 21, size = 0.5) +
   scale_x_continuous(breaks = 1:12,
@@ -76,10 +99,10 @@ ggplotly(p2)
 
 both <- p1 / p2
 
-ggsave("visuals/sfpd_lineplot.png", width = 6, height = 4)
+ggsave("visuals/sfpd_lineplot_new.png", width = 8, height = 4)
 
 
-htmlwidgets::saveWidget(p, "visuals/sfpd_lineplot.html", selfcontained = FALSE, libdir = "lib/")
+htmlwidgets::saveWidget(p2, "visuals/sfpd_lineplot_new.html", selfcontained = FALSE, libdir = "lib/")
 
 bind_rows(last_dec, combined_data, next_jan) |> 
   mutate(month = factor(month, levels =c("last_Dec", month.abb, "next_Jan")),
@@ -87,7 +110,6 @@ bind_rows(last_dec, combined_data, next_jan) |>
  group_by(year, month) |>
   summarize(count) |>
   arrange(desc(year)) |> print(n = 15)
-
 
 
 incidents_line <- read_csv("data/raw/incident_reports_new.csv") |>
@@ -98,3 +120,4 @@ incidents_line <- read_csv("data/raw/incident_reports_new.csv") |>
   summarize(count = n()) |>
   ggplot(aes(month, count, group = year, color = year)) +
   geom_line()
+
