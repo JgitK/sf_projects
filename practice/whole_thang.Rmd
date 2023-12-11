@@ -1,0 +1,726 @@
+---
+title: "Whole Thang"
+author: "Jackson"
+date: "2023-11-29"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(shiny)
+library(lubridate)
+library(leaflet)
+library(mapboxer)
+library(htmlwidgets)
+```
+
+```{r}
+file_path <- file.path("/Users/jackson/Documents/sf_projects", "data/raw/sfpd_incidents_120223.csv")
+data <- read_csv("data/raw/sfpd_incidents_120223.csv")
+map_data <- read_csv(file_path) |>
+  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
+         p_district = `Police District`, category = `Incident Category`, lat = `Latitude`, long = `Longitude`) |>
+  mutate(category = case_when(
+    category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
+    category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
+    TRUE ~ category),
+    violent = ifelse(category %in% c("Homicide", "Rape", "Robbery", "Assault",
+                                          "Human Trafficking (B)", 
+                                          "Human Trafficking (A)"), 1, 0),
+    property = ifelse(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson"), 1, 0)
+  )
+```
+
+```{r}
+##################################################################
+
+file_path <- file.path("/Users/jackson/Documents/sf_projects", "data/raw/sfpd_incidents_120223.csv")
+data <- read_csv("data/raw/sfpd_incidents_120223.csv")
+map_data <- data |>
+  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
+         p_district = `Police District`, category = `Incident Category`, lat = `Latitude`, long = `Longitude`) |>
+  mutate(category = case_when(
+    category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
+    category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
+    TRUE ~ category),
+    violent = ifelse(category %in% c("Homicide", "Rape", "Robbery", "Assault",
+                                          "Human Trafficking (B)", 
+                                          "Human Trafficking (A)"), 1, 0),
+    property = ifelse(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson"), 1, 0)
+  )
+
+
+new_data <- map_data |>
+  select(category, date, year, neighborhood, lat, long)
+
+ui <- fluidPage(
+  mapboxerOutput("map"),
+  plotOutput("barchart"),
+  checkboxGroupInput("crime_toggle", "Select Crime Type:", choices = c("Violent Crime", "Property Crime"),
+                     selected = "Violent Crime")
+)
+
+server <- function (input, output, session) {
+  
+  text_style <- list(
+  "id" = "cluster-count",
+  "type" = "symbol",
+  "filter" = c("has", "point_count"),
+  "layout" = list(
+    "text-field" = "{point_count_abbreviated}",
+    "text-size" = 12
+  )
+  )
+  
+  #Create Map
+  output$map <- renderMapboxer({
+    map_data %>%
+      as_mapbox_source(lng = "long", lat = "lat",
+                       cluster = TRUE,
+                       clusterMaxZoom = 12,
+                       clusterRadius = 50) %>%
+      mapboxer(
+        style = basemaps$Mapbox$dark_v10,
+        center = c(-122.4254, 37.7743),
+        zoom = 11
+      ) %>%
+      add_navigation_control(pos = "top-left") %>%
+      add_circle_layer(
+        circle_color = c("get", "color"),
+        circle_radius = 3,
+        popup = "Incident Category: {{category}}</br>Date: {{date}}"
+      ) %>%
+      add_circle_layer(
+        id = "cluster_layer",
+        filter = c("has", "point_count"),
+        circle_blur = 0.3,
+        circle_stroke_color = "white",
+        circle_stroke_opacity = 1,
+        circle_stroke_width = 1,
+        circle_color = list(
+          'step',
+          list('get', 'point_count'),
+          '#AD7D2E',
+          300,
+          '#AD7D2E',
+          1000,
+          '#AD7D2E'
+        ),
+        circle_radius = list(
+          'step',
+          list('get', 'point_count'),
+          9,
+          400,
+          13,
+          3000,
+          20
+        )
+      ) %>%
+      add_layer(text_style) %>%
+      add_scale_control(pos = "bottom-left", unit = "miles")
+  })
+  
+  #Reactive expression that returns set of incidents that are in bound right now
+  incidentsInBounds <- reactive({
+    if (is.null(input$map_bounds))
+      return(map_data[FALSE,])
+
+    bounds <- input$map_bounds
+    latRng <- range(bounds$north, bounds$south)
+    lngRng <- range(bounds$east, bounds$west)
+    
+    subset(new_data,
+      latitude >= latRng[1] & latitude <= latRng[2] &
+      longitude >= lngRng[1] & longitude <= lngRng[2])
+  })
+
+  #Make barchart
+   output$barchart <- renderPlot({
+     
+      selected_crimes <- if ("Violent Crime" %in% input$crime_toggle) {
+      violent_crimes
+    } else if ("Property Crime" %in% input$crime_toggle) {
+      property_crimes
+    } else {
+      character(0)
+    }
+      
+    per_year <- incidentsInBounds %>%
+      filter(year %in% c(this_year, last_year, two_years, three_years), category %in% selected_crimes$category) %>%
+      group_by(category, year) %>%
+      summarize(count = n())
+
+    yr_span_avg <- incidentsInBounds %>%
+      filter(year %in% c(last_year, two_years, three_years), category %in% selected_crimes$category) %>%
+      group_by(category, year) %>%
+      summarize(count = n()) %>%
+      ungroup() %>%
+      group_by(category) %>%
+      summarize(avg = mean(count))
+
+    p1 <- per_year %>%
+      inner_join(yr_span_avg, by = "category") %>%
+      filter(year == this_year | year == last_year) %>%
+      mutate(this_year = year == this_year) %>%
+      ggplot(aes(x = category, y = ifelse(this_year, count, avg), fill = as.factor(year))) +
+      geom_col(position = "dodge", color = "black") +
+      labs(title = "Decrease in Property Crime This Year \n Compared to 3-Year Average",
+           x = "Category",
+           y = "Incident Count",
+           fill = "Year") +
+      scale_fill_manual(
+        values = c("2023" = "#AD7D2E",
+                   "2022" = "#365188")
+      ) +
+      theme_minimal() +
+      theme(
+        plot.background = element_rect(fill = "black", color = "grey"),
+        panel.background = element_rect(fill = "black", color = "grey"),
+        panel.grid = element_blank(),
+        axis.text = element_text(color = "grey", size = 13),
+        axis.ticks = element_line(color = "grey"),
+        axis.ticks.length = unit(-5, "pt"),
+        axis.title = element_text(color = "grey", size = 13),
+        plot.title = element_text(color = "grey", hjust = 0.5, size = 15),
+        legend.title = element_blank(),
+        legend.background = element_rect(fill = NA),
+        legend.text = element_text(color = "grey"),
+        axis.text.x = element_text(angle = 30, hjust = 1),
+        axis.title.x = element_blank()
+      )
+})
+   
+  output$incidentsBar <- renderPlot({
+    # If no incidents are in view, don't plot
+    if (nrow(incidentsInBounds()) == 0)
+      return(NULL)
+  })
+  
+}
+
+shinyApp(ui, server)
+##################################################################
+```
+
+
+```{r}
+library(mapboxer)
+library(ggplot2)
+library(dplyr)
+
+# Assuming you have a map_data dataframe, you can create a reactive expression to subset the data based on map bounds
+library(shiny)
+library(mapboxer)
+library(leaflet)
+library(dplyr)
+library(ggplot2)
+
+# Assuming you have a map_data dataframe
+map_data <- ...
+
+# Define crime categories
+violent_crimes <- c("Homicide", "Rape", "Robbery", "Assault", "Human Trafficking (B)", "Human Trafficking (A)")
+property_crimes <- c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson")
+
+ui <- fluidPage(
+  mapboxerOutput("map"),
+  plotOutput("barchart"),
+  checkboxGroupInput("crime_toggle", "Select Crime Type:", choices = c("Violent Crime", "Property Crime"),
+                     selected = "Violent Crime")
+)
+
+server <- function(input, output, session) {
+  # Reactive expression to subset the data based on map bounds and selected crime type
+  incidentsInBounds <- reactive({
+    if (is.null(input$map_bounds))
+      return(map_data[FALSE,])
+
+    bounds <- input$map_bounds
+    latRng <- range(bounds$north, bounds$south)
+    lngRng <- range(bounds$east, bounds$west)
+
+    filtered_data <- if ("Violent Crime" %in% input$crime_toggle) {
+      map_data %>%
+        filter(category %in% violent_crimes,
+               lat >= latRng[1] & lat <= latRng[2] &
+                 long >= lngRng[1] & long <= lngRng[2])
+    } else if ("Property Crime" %in% input$crime_toggle) {
+      map_data %>%
+        filter(category %in% property_crimes,
+               lat >= latRng[1] & lat <= latRng[2] &
+                 long >= lngRng[1] & long <= lngRng[2])
+    } else {
+      map_data[FALSE,]
+    }
+
+    return(filtered_data)
+  })
+
+  
+# Render the map
+
+  output$map <- renderMapboxer({
+text_style <- list(
+  "id" = "cluster-count",
+  "type" = "symbol",
+  "filter" = c("has", "point_count"),
+  "layout" = list(
+    "text-field" = "{point_count_abbreviated}",
+    "text-size" = 12
+  )
+)
+
+# Create a source
+map <- map_data %>%
+  dplyr::filter(year(date) == 2022) %>%
+  dplyr::mutate(color = ifelse(violent > 0, "red", "#365188")) %>%
+  as_mapbox_source(lng = "long", lat = "lat"
+                   ,
+                   cluster = TRUE,
+                   clusterMaxZoom = 12,
+                   clusterRadius = 50
+                   #clusterPaint = "gold"
+                   ) %>%
+  # Setup a map with the default source above
+  mapboxer(
+    style = basemaps$Mapbox$dark_v10,
+    center = c( -122.4254, 37.7743),
+    zoom = 11
+  ) %>%
+  # Add a navigation control
+  add_navigation_control(pos = "top-left") %>%
+     
+  add_circle_layer(
+    circle_color = c("get", "color"),
+    circle_radius = 3,
+    # Use a mustache template to add popups to the layer
+    popup = "Incident Category: {{category}}</br>Date: {{date}}"
+  ) %>%
+  # Add a layer styling the data of the default source
+  add_circle_layer(
+    id = "cluster_layer",
+    filter = c("has", "point_count"),
+    circle_blur = 0.3,
+    #circle_radius = 12,
+    #circle_color = "gold",
+    circle_stroke_color = "white",
+    circle_stroke_opacity = 1,
+    circle_stroke_width = 1,
+#     // Use step expressions (https://docs.mapbox.com/style-spec/reference/expressions/#step)
+# // with three steps to implement three types of circles:
+# //   * Blue, 20px circles when point count is less than 100
+# //   * Yellow, 30px circles when point count is between 100 and 750
+# //   * Pink, 40px circles when point count is greater than or equal to 750
+   circle_color = list(
+      'step',
+      list('get', 'point_count'),
+      '#AD7D2E',
+      300,
+      #'#365188',
+      '#AD7D2E',
+      1000,
+      '#AD7D2E'
+    ),
+    circle_radius = list(
+      'step',
+      list('get', 'point_count'),
+      9,
+      400,
+      13,
+      3000,
+      20
+    )
+) %>%
+  add_layer(text_style
+  ) %>%
+  add_scale_control(
+    pos = "bottom-left",
+    # Option passed to the 'ScaleControl'
+    unit = "miles"
+    ) 
+})
+
+
+# Assuming you already have the reactive expression `incidentsInBounds`, you can use it for the bar chart as follows:
+  output$barchart <- renderPlot({
+    
+per_year <- incidentsInBounds() |>
+  filter(year %in% c(this_year, last_year, two_years, three_years), category %in% property_crimes$category) %>%
+  group_by(category, year) |> 
+  summarize(count = n())
+
+yr_span_avg <- incidentsInBounds() |> 
+  filter(year %in% c(last_year, two_years, three_years), category %in% property_crimes$category) %>%
+  group_by(category, year) |> 
+  summarize(count = n()) |> 
+  ungroup() |>
+  group_by(category) |> 
+  summarize(avg = mean(count))
+
+p1 <- per_year |>
+  inner_join(yr_span_avg, by = "category") |>
+  filter(year == this_year | year == last_year) |>
+  mutate(this_year = year == this_year) |>
+  ggplot(aes(x = category, y = ifelse(this_year, count, avg), fill = as.factor(year))) +
+  geom_col(position = "dodge", color = "black") +
+  labs(title = "Decrease in Property Crime This Year \n Compared to 3-Year Average",
+       x = "Category",
+       y = "Incident Count",
+       fill = "Year") +
+  scale_fill_manual(
+    values = c("2023" = "#AD7D2E", 
+               "2022" = "#365188")
+  ) +
+  theme_minimal() +
+  theme(
+    plot.background = element_rect(fill = "black", color = "grey"),
+    panel.background = element_rect(fill = "black", color = "grey"),
+    panel.grid = element_blank(), 
+    axis.text = element_text(color = "grey", size = 13),
+    axis.ticks = element_line(color = "grey"),
+    axis.ticks.length = unit(-5, "pt"),
+    axis.title = element_text(color = "grey", size = 13),
+    plot.title = element_text(color = "grey", hjust = 0.5, size = 15),
+    legend.title = element_blank(),
+    legend.background = element_rect(fill = NA),
+    legend.text = element_text(color = "grey"),
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    axis.title.x = element_blank()
+  )
+})
+
+# Your existing map code continues here...
+```
+
+```{r}
+library(shiny)
+library(mapboxer)
+library(leaflet)
+
+# Assuming you have a map_data dataframe
+file_path <- file.path("/Users/jackson/Documents/sf_projects", "data/raw/sfpd_incidents_120223.csv")
+data <- read_csv("data/raw/sfpd_incidents_120223.csv")
+map_data <- read_csv(file_path) |>
+  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
+         p_district = `Police District`, category = `Incident Category`, lat = `Latitude`, long = `Longitude`) |>
+  mutate(category = case_when(
+    category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
+    category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
+    TRUE ~ category),
+    violent = ifelse(category %in% c("Homicide", "Rape", "Robbery", "Assault",
+                                          "Human Trafficking (B)", 
+                                          "Human Trafficking (A)"), 1, 0),
+    property = ifelse(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson"), 1, 0)
+  )
+
+# Define crime categories
+violent_crimes <- c("Homicide", "Rape", "Robbery", "Assault", "Human Trafficking (B)", "Human Trafficking (A)")
+property_crimes <- c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson")
+
+######################################################
+server <- function (input, output, session) {
+  
+  #Create Map
+  output$map <- renderMapboxer({
+    map_data %>%
+      as_mapbox_source(lng = "long", lat = "lat",
+                       cluster = TRUE,
+                       clusterMaxZoom = 12,
+                       clusterRadius = 50) %>%
+      mapboxer(
+        style = basemaps$Mapbox$dark_v10,
+        center = c(-122.4254, 37.7743),
+        zoom = 11
+      ) %>%
+      add_navigation_control(pos = "top-left") %>%
+      add_circle_layer(
+        circle_color = c("get", "color"),
+        circle_radius = 3,
+        popup = "Incident Category: {{category}}</br>Date: {{date}}"
+      ) %>%
+      add_circle_layer(
+        id = "cluster_layer",
+        filter = c("has", "point_count"),
+        circle_blur = 0.3,
+        circle_stroke_color = "white",
+        circle_stroke_opacity = 1,
+        circle_stroke_width = 1,
+        circle_color = list(
+          'step',
+          list('get', 'point_count'),
+          '#AD7D2E',
+          300,
+          '#AD7D2E',
+          1000,
+          '#AD7D2E'
+        ),
+        circle_radius = list(
+          'step',
+          list('get', 'point_count'),
+          9,
+          400,
+          13,
+          3000,
+          20
+        )
+      ) %>%
+      add_layer(list(
+        "id" = "cluster-count",
+        "type" = "symbol",
+        "filter" = c("has", "point_count"),
+        "layout" = list(
+          "text-field" = "{point_count_abbreviated}",
+          "text-size" = 12
+        )
+      )) %>%
+      add_scale_control(pos = "bottom-left", unit = "miles")
+  })
+  
+  #Reactive expression that returns set of incidents that are in bound right now
+  incidentsInBounds <- reactive({
+    if (is.null(input$map_bounds))
+      return(map_data[FALSE,])
+
+    bounds <- input$map_bounds
+    latRng <- range(bounds$north, bounds$south)
+    lngRng <- range(bounds$east, bounds$west)
+    
+    subset(map_data,
+      latitude >= latRng[1] & latitude <= latRng[2] &
+      longitude >= lngRng[1] & longitude <= lngRng[2])
+  })
+
+  #Make barchart
+   output$barchart <- renderPlot({
+     
+      selected_crimes <- if ("Violent Crime" %in% input$crime_toggle) {
+      violent_crimes
+    } else if ("Property Crime" %in% input$crime_toggle) {
+      property_crimes
+    } else {
+      character(0)
+    }
+      
+    per_year <- new_data %>%
+      filter(year %in% c(this_year, last_year, two_years, three_years), category %in% selected_crimes$category) %>%
+      group_by(category, year) %>%
+      summarize(count = n())
+
+    yr_span_avg <- new_data %>%
+      filter(year %in% c(last_year, two_years, three_years), category %in% selected_crimes) %>%
+      group_by(category, year) %>%
+      summarize(count = n()) %>%
+      ungroup() %>%
+      group_by(category) %>%
+      summarize(avg = mean(count))
+
+    p1 <- per_year %>%
+      inner_join(yr_span_avg, by = "category") %>%
+      filter(year == this_year | year == last_year) %>%
+      mutate(this_year = year == this_year) %>%
+      ggplot(aes(x = category, y = ifelse(this_year, count, avg), fill = as.factor(year))) +
+      geom_col(position = "dodge", color = "black") +
+      labs(title = "Decrease in Property Crime This Year \n Compared to 3-Year Average",
+           x = "Category",
+           y = "Incident Count",
+           fill = "Year") +
+      scale_fill_manual(
+        values = c("2023" = "#AD7D2E",
+                   "2022" = "#365188")
+      ) +
+      theme_minimal() +
+      theme(
+        plot.background = element_rect(fill = "black", color = "grey"),
+        panel.background = element_rect(fill = "black", color = "grey"),
+        panel.grid = element_blank(),
+        axis.text = element_text(color = "grey", size = 13),
+        axis.ticks = element_line(color = "grey"),
+        axis.ticks.length = unit(-5, "pt"),
+        axis.title = element_text(color = "grey", size = 13),
+        plot.title = element_text(color = "grey", hjust = 0.5, size = 15),
+        legend.title = element_blank(),
+        legend.background = element_rect(fill = NA),
+        legend.text = element_text(color = "grey"),
+        axis.text.x = element_text(angle = 30, hjust = 1),
+        axis.title.x = element_blank()
+      )
+})
+   
+  output$incidentsBar <- renderPlot({
+    # If no incidents are in view, don't plot
+    if (nrow(incidentsInBounds()) == 0)
+      return(NULL)
+  })
+  
+}
+
+shinyApp(ui, server)
+#######################
+
+
+server <- function(input, output, session) {
+  # Reactive expression to subset the data based on map bounds and selected crime type
+  incidentsInBounds <- reactive({
+    if (is.null(input$map_bounds))
+      return(map_data[FALSE,])
+
+    bounds <- input$map_bounds
+    latRng <- range(bounds$north, bounds$south)
+    lngRng <- range(bounds$east, bounds$west)
+
+    filtered_data <- if ("Violent Crime" %in% input$crime_toggle) {
+      map_data %>%
+        filter(category %in% violent_crimes,
+               lat >= latRng[1] & lat <= latRng[2] &
+                 long >= lngRng[1] & long <= lngRng[2])
+    } else if ("Property Crime" %in% input$crime_toggle) {
+      map_data %>%
+        filter(category %in% property_crimes,
+               lat >= latRng[1] & lat <= latRng[2] &
+                 long >= lngRng[1] & long <= lngRng[2])
+    } else {
+      map_data[FALSE,]
+    }
+
+    return(filtered_data)
+  })
+
+  # Render the map
+  
+
+  # Render the barchart
+  output$barchart <- renderPlot({
+    per_year <- incidentsInBounds() %>%
+      filter(year %in% c(this_year, last_year, two_years, three_years), category %in% input$category) %>%
+      group_by(category, year) %>%
+      summarize(count = n())
+
+    yr_span_avg <- incidentsInBounds() %>%
+      filter(year %in% c(last_year, two_years, three_years), category %in% input$category) %>%
+      group_by(category, year) %>%
+      summarize(count = n()) %>%
+      ungroup() %>%
+      group_by(category) %>%
+      summarize(avg = mean(count))
+
+    p1 <- per_year %>%
+      inner_join(yr_span_avg, by = "category") %>%
+      filter(year == this_year | year == last_year) %>%
+      mutate(this_year = year == this_year) %>%
+      ggplot(aes(x = category, y = ifelse(this_year, count, avg), fill = as.factor(year))) +
+      geom_col(position = "dodge", color = "black") +
+      labs(title = "Decrease in Property Crime This Year \n Compared to 3-Year Average",
+           x = "Category",
+           y = "Incident Count",
+           fill = "Year") +
+      scale_fill_manual(
+        values = c("2023" = "#AD7D2E",
+                   "2022" = "#365188")
+      ) +
+      theme_minimal() +
+      theme(
+        plot.background = element_rect(fill = "black", color = "grey"),
+        panel.background = element_rect(fill = "black", color = "grey"),
+        panel.grid = element_blank(),
+        axis.text = element_text(color = "grey", size = 13),
+        axis.ticks = element_line(color = "grey"),
+        axis.ticks.length = unit(-5, "pt"),
+        axis.title = element_text(color = "grey", size = 13),
+        plot.title = element_text(color = "grey", hjust = 0.5, size = 15),
+        legend.title = element_blank(),
+        legend.background = element_rect(fill = NA),
+        legend.text = element_text(color = "grey"),
+        axis.text.x = element_text(angle = 30, hjust = 1),
+        axis.title.x = element_blank()
+      )
+
+    print(p1)
+  })
+}
+
+shinyApp(ui, server)
+```
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Define time periods
+this_year <- year(today())
+this_month <- month(today())
+last_year <- this_year - 1
+two_years <- this_year - 2
+three_years <- this_year - 3
+
+# Read data
+new_data <- read_csv("data/raw/sfpd_incidents_120223.csv") %>%
+  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
+         p_district = `Police District`, category = `Incident Category`, lat = `Latitude`, long = `Longitude`) %>%
+  mutate(category = case_when(
+    category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
+    category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
+    TRUE ~ category
+  )) %>%
+  select(category, date, year, neighborhood, lat, long)
+
+# Filter crimes
+violent_crimes <- new_data %>%
+  filter(category %in% c("Homicide", "Rape", "Robbery", "Assault", "Human Trafficking (B)", "Human Trafficking (A)"))
+
+property_crimes <- new_data %>%
+  filter(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson"))
+
+# Create map data
+map_data <- new_data %>%
+  mutate(violent = as.numeric(category %in% c("Homicide", "Rape", "Robbery", "Assault", "Human Trafficking (B)", "Human Trafficking (A)")),
+         property = as.numeric(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson")))
+
+# Calculate averages
+yr_span_avg <- new_data %>%
+  filter(year %in% c(last_year, two_years, three_years), category %in% property_crimes$category) %>%
+  group_by(category, year) %>%
+  summarize(count = n()) %>%
+  ungroup() %>%
+  group_by(category) %>%
+  summarize(avg = mean(count))
+
+per_year <- new_data %>%
+  filter(year %in% c(this_year, last_year, two_years, three_years), category %in% property_crimes$category) %>%
+  group_by(category, year) %>%
+  summarize(count = n())
+
+# Plotting
+p1 <- per_year %>%
+  inner_join(yr_span_avg, by = "category") %>%
+  filter(year == this_year | year == last_year) %>%
+  mutate(this_year = year == this_year) %>%
+  ggplot(aes(x = category, y = ifelse(this_year, count, avg), fill = as.factor(year))) +
+  geom_col(position = "dodge", color = "black") +
+  labs(title = "Decrease in Property Crime This Year \n Compared to 3-Year Average",
+       x = "Category",
+       y = "Incident Count",
+       fill = "Year") +
+  scale_fill_manual(values = c("2023" = "#AD7D2E", "2022" = "#365188")) +
+  theme_minimal() +
+  theme(
+    plot.background = element_rect(fill = "black", color = "grey"),
+    panel.background = element_rect(fill = "black", color = "grey"),
+    panel.grid = element_blank(),
+    axis.text = element_text(color = "grey", size = 13),
+    axis.ticks = element_line(color = "grey"),
+    axis.ticks.length = unit(-5, "pt"),
+    axis.title = element_text(color = "grey", size = 13),
+    plot.title = element_text(color = "grey", hjust = 0.5, size = 15),
+    legend.title = element_blank(),
+    legend.background = element_rect(fill = NA),
+    legend.text = element_text(color = "grey"),
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    axis.title.x = element_blank()
+  )
+
+# Display the plot
+print(p1)
+```
+
+

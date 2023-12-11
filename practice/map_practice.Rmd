@@ -1,0 +1,488 @@
+---
+title: "map practice"
+author: "Jackson"
+date: "2023-11-29"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(flexdashboard)
+library(shiny)
+library(plotly)
+library(lubridate)
+library(tidycensus)
+library(leaflet)
+library(mapdeck)
+library(sf)
+library(mapboxer)
+library(htmlwidgets)
+```
+
+```{r}
+Sys.setenv(MAPBOX_API_TOKEN = "pk.eyJ1Ijoia2VudGV1cjM3MiIsImEiOiJjbG9hYTNhMG4wYnBpMmtyMTcxN3c2eHc0In0.VK1I6nS5DVbKt7sh83LGvw")
+```
+
+
+```{r}
+
+### OLD
+ca_counties <- map_data("county", "california") |> 
+  select(lon = long, lat, group, id = "subregion")
+
+ca <- map_data("county", "california") |> 
+  select(long, lat, subregion)
+
+ca
+
+
+ggplot(ca_counties, aes(lon, lat, group = group)) +
+  geom_polygon(aes(fill = "white", color = "black")) +
+  coord_quickmap()
+
+ggplot(ca_counties, aes(lon, lat)) +
+  geom_point(size = 0.25, show.legend=F) +
+  coord_quickmap()
+
+sf <- ca_counties |> 
+  filter(id == "san francisco")
+
+sf
+
+ggplot(sf, aes(lon, lat)) +
+  geom_point(size = .25, show.legend = F) +
+  coord_quickmap()
+
+sf_map <- ggplot(sf, aes(lon, lat)) +
+  geom_polygon(fill = NA, color = "red") +
+  coord_quickmap()
+sf_map
+
+ggplot(df, aes(`Longitude`, `Latitude`)) +
+  geom_point(size = 0.25, alpha = 0.05) +
+  coord_quickmap()
+
+sf_map_points <- sf |> 
+  select(lon, lat)
+sf_map_points
+
+
+df |> 
+  filter(year == 2020) |> 
+  ggplot(aes(`Longitude`, `Latitude`)) +
+  geom_point(size=0.25) +
+  coord_quickmap()
+
+ggplot(sf, aes(lon, lat, id=id)) +
+  geom_map(map = sf, data = sf,
+           fill = NA, color = "red")
+
+?geom_map
+
+sf <- sf |> 
+  mutate(
+    x = lon,
+    y = lat
+  )
+
+ggplot(df, aes(`Longitude`, `Latitude`)) +
+  geom_map(data = sf, aes(map_id = id),
+           map = sf, fill = NA, color = "red") +
+  expand_limits(x=sf$lon, y=sf$lat) +
+  geom_point(alpha = 0.2)
+
+ggplot(sf, aes(lon, lat)) +
+  geom_map(data = sf, aes(map_id = id), map = sf, fill = NA, color = "red") +
+  expand_limits(x = sf$lon, y = sf$lat) +
+  geom_point(data = df, aes(Longitude, Latitude), size = 0.1, alpha = 0.1) +
+  coord_fixed()
+```
+
+```{r}
+
+### NEW
+
+# Don't know what this does
+options(tigris_use_cache = TRUE)
+
+marin <- get_acs(
+  state = "CA",
+  county = "Marin",
+  geography = "tract",
+  variables = "B19013_001",
+  geometry = TRUE,
+  year = 2020
+)
+
+sf_hhincome <- get_acs(
+  state = "CA",
+  county = "San Francisco",
+  geography = "tract",
+  variables = "B19013_001",
+  geometry = TRUE,
+  year = 2020
+)
+
+?get_acs
+
+marin |>
+  ggplot(aes(fill = estimate)) +
+  geom_sf(color = NA) +
+  scale_fill_viridis_c(option = "magma")
+
+sf_hhincome |>
+  ggplot(aes(fill = estimate)) +
+  geom_sf(color = NA) +
+  scale_fill_viridis_c(option = "magma") +
+  coord_sf(xlim = c(-122.55, -122.32), ylim = c(37.7, 37.84))
+  
+
+
+```
+
+```{r}
+racevars <- c(White = "P2_005N",
+              Black = "P2_006N",
+              Asian = "P2_008N",
+              Hispanic = "P2_002N")
+
+san_fran_ghanistan <- get_decennial(
+  geography = "tract",
+  variables = racevars,
+  state = "CA",
+  county = "San Francisco",
+  geometry = TRUE,
+  summary_var = "P2_001N",
+  year = 2020,
+  sumfile = "pl"
+  )
+
+
+san_fran_ghanistan |>
+  mutate(percent = 100 * (value/summary_value)) |>
+  ggplot(aes(fill = percent)) +
+  facet_wrap(~variable) +
+  geom_sf(color = NA) +
+  theme_void() +
+  coord_sf(xlim = c(-122.6, -122.3), ylim = c(37.7, 37.85))
+    
+```
+
+```{r}
+file_path <- file.path("/Users/jackson/Documents/sf_projects", "data/raw/sfpd_incidents_120223.csv")
+data <- read_csv("data/raw/sfpd_incidents_120223.csv")
+map_data <- read_csv(file_path) |>
+  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
+         p_district = `Police District`, category = `Incident Category`, lat = `Latitude`, long = `Longitude`) |>
+  mutate(category = case_when(
+    category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
+    category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
+    TRUE ~ category),
+    violent = ifelse(category %in% c("Homicide", "Rape", "Robbery", "Assault",
+                                          "Human Trafficking (B)", 
+                                          "Human Trafficking (A)"), 1, 0),
+    property = ifelse(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson"), 1, 0),
+    color = ifelse(violent > 0, "red", "#365188")
+        )
+
+```
+
+```{r}
+# Load the library
+library(mapboxer)
+
+text_style <- list(
+  "id" = "cluster-count",
+  "type" = "symbol",
+  "filter" = c("has", "point_count"),
+  "layout" = list(
+    "text-field" = "{point_count_abbreviated}",
+    "text-size" = 12
+  )
+)
+
+popup = "Incident Category: {{category}}</br>Date: {{date}}"
+
+circle_radius <- list(
+      'step',
+      list('get', 'point_count'), 9, 400, 13, 3000, 20
+    )
+
+circle_color <- list('step',
+      list('get', 'point_count'),
+      '#AD7D2E', 300, '#AD7D2E', 1000, '#AD7D2E'
+    )
+
+# Create the map
+map <- map_data %>%
+  as_mapbox_source(lng = "long", lat = "lat",
+                   cluster = TRUE,
+                   clusterMaxZoom = 12,
+                   clusterRadius = 50
+                   ) %>%
+  # Setup a map with the default source above at SF
+  mapboxer(
+    style = basemaps$Mapbox$dark_v10,
+    center = c( -122.4254, 37.7743),
+    zoom = 11
+  ) %>%
+  add_navigation_control(pos = "top-left") %>%
+  add_circle_layer(
+    circle_color = c("get", "color"),
+    circle_radius = 3,
+    popup = popup
+  ) %>%
+  # Add a layer styling the data of the default source
+  add_circle_layer(
+    id = "cluster_layer",
+    filter = c("has", "point_count"),
+    circle_blur = 0.3,
+    circle_stroke_color = "white",
+    circle_stroke_opacity = 1,
+    circle_stroke_width = 1,
+    circle_color = circle_color,
+    circle_radius = circle_radius
+) %>%
+  add_layer(text_style) %>%
+  add_scale_control(
+    pos = "bottom-left",
+    unit = "miles"
+    ) 
+
+
+```
+
+```{r}
+htmlwidgets::saveWidget(map, "sfpd_incident_map.html", selfcontained = FALSE, libdir = "lib/")
+
+```
+
+```{r}
+library(leaflet)
+library(dplyr)
+
+# Create a source
+map_data <- map_data %>%
+  filter(year(date) == 2022) %>%
+  mutate(color = ifelse(violent > 0, "red", "#365188"))
+
+# Create a leaflet map
+map <- leaflet() %>%
+  setView(lng = -122.4254, lat = 37.7743, zoom = 11) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addCircleMarkers(
+    data = map_data,
+    lng = ~long,
+    lat = ~lat,
+    radius = 3,
+    color = ~color,
+    fillOpacity = 0.4,
+    popup = paste("Incident Category: ", map_data$category, "</br>Date: ", map_data$date),
+    group = "Incidents"
+  ) %>%
+  addMarkers(
+    data = map_data %>%
+      filter(violent > 0),
+    lng = ~long,
+    lat = ~lat,
+    icon = makeIcon(iconUrl = "http://leafletjs.com/docs/images/leaf-green.png", iconWidth = 16, iconHeight = 16),
+    popup = paste("Violent Incident Category: ", map_data$category, "</br>Date: ", map_data$date),
+    group = "Violent Incidents"
+  ) %>%
+  addMarkers(
+    data = map_data %>%
+      filter(violent == 0),
+    lng = ~long,
+    lat = ~lat,
+    icon = makeIcon(iconUrl = "http://leafletjs.com/docs/images/leaf-red.png", iconWidth = 16, iconHeight = 16),
+    popup = paste("Non-Violent Incident Category: ", map_data$category, "</br>Date: ", map_data$date),
+    group = "Non-Violent Incidents"
+  ) %>%
+  addLayersControl(
+    overlays = c("Incidents", "Violent Incidents", "Non-Violent Incidents"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+# Print the map
+print(map)
+```
+
+
+```{r}
+library(shiny)
+library(mapboxer)
+
+view <- fillPage(
+  h1("Map Of San Francisco Incident Reports, 2022"),
+  # Add a dropdown menu for selecting incident categories
+  selectInput("category", "Select Incident Category", choices = unique(map_data$category)),
+  mapboxerOutput("map")
+)
+
+backend <- function(input, output) {
+  output$map <- renderMapboxer({
+    map_data %>%
+      filter(year(date) == 2022, category %in% input$category) %>%
+      mutate(color = ifelse(violent > 0, "red", "yellow")) %>%
+      as_mapbox_source(lng = "long", lat = "lat",
+                       cluster = TRUE,
+                       clusterMaxZoom = 12,
+                       clusterRadius = 10
+      ) %>%
+      mapboxer(
+        style = basemaps$Mapbox$dark_v10,
+        center = c(-122.4254, 37.7743),
+        zoom = 11
+      ) %>%
+      add_navigation_control() %>%
+      add_circle_layer(
+        circle_color = c("get", "color"),
+        circle_radius = 3,
+        popup = "Incident Category: {{category}}</br>Date: {{date}}"
+      ) %>%
+      add_circle_layer(
+        id = "cluster_layer",
+        filter = c("has", "point_count"),
+        circle_blur = 1,
+        circle_stroke_color = "blue",
+        circle_color = list(
+          'step',
+          list('get', 'point_count'),
+          '#365188',
+          750,
+          '#AD7D2E'
+        ),
+        circle_radius = list(
+          'step',
+          list('get', 'point_count'),
+          12,
+          750,
+          20
+        )
+      ) %>%
+      add_scale_control(
+        pos = "bottom-left",
+        unit = "miles"
+      )
+  })
+}
+
+if (interactive()) shinyApp(view, backend)
+```
+
+
+```{r}
+library(shiny)
+library(mapboxer)
+
+ui <- fluidPage(
+  tags$head(
+    tags$style(HTML("body {padding:0;margin:0;}")),
+    tags$script(src="https://api.mapbox.com/mapbox-gl-js/v2.7.0/mapbox-gl.js"),
+    tags$link(href="https://api.mapbox.com/mapbox-gl-js/v2.7.0/mapbox-gl.css", rel="stylesheet")
+  ),
+  div(id = "map", style = "height:100vh;")
+)
+
+server <- function(input, output, session) {
+  text_style <- list(
+    "id" = "cluster-count",
+    "type" = "symbol",
+    "filter" = c("has", "point_count"),
+    "layout" = list(
+      "text-field" = "{point_count_abbreviated}",
+      "text-size" = 12
+    )
+  )
+
+  observe({
+    map_data %>%
+      dplyr::filter(year(date) == 2022) %>%
+      dplyr::mutate(color = ifelse(violent > 0, "red", "#365188")) %>%
+      as_mapbox_source(lng = "long", lat = "lat",
+                       cluster = TRUE,
+                       clusterMaxZoom = 12,
+                       clusterRadius = 50) %>%
+      mapboxer(
+        style = basemaps$Mapbox$dark_v10,
+        center = c(-122.4254, 37.7743),
+        zoom = 11
+      ) %>%
+      add_navigation_control(pos = "top-left") %>%
+      add_circle_layer(
+        circle_color = c("get", "color"),
+        circle_radius = 3,
+        popup = "Incident Category: {{category}}</br>Date: {{date}}"
+      ) %>%
+      add_circle_layer(
+        id = "cluster_layer",
+        filter = c("has", "point_count"),
+        circle_blur = 0.3,
+        circle_stroke_color = "white",
+        circle_stroke_opacity = 1,
+        circle_stroke_width = 1,
+        circle_color = list(
+          'step',
+          list('get', 'point_count'),
+          '#AD7D2E',
+          300,
+          '#AD7D2E',
+          1000,
+          '#AD7D2E'
+        ),
+        circle_radius = list(
+          'step',
+          list('get', 'point_count'),
+          9,
+          400,
+          13,
+          1000,
+          20
+        )
+      ) %>%
+      add_layer(text_style) %>%
+      add_scale_control(pos = "bottom-left", unit = "miles")
+  })
+}
+
+shinyApp(ui, server)
+```
+
+```{r}
+library(shiny)
+library(mapboxer)
+
+view <- fluidPage(
+  h1("mapboxer"),
+  mapboxerOutput("map"),
+  htmlOutput("feature")
+)
+
+server <- function(input, output) {
+  output$map <- renderMapboxer({
+    mapboxer(center = c(144.9624, -37.8105), zoom = 10) %>%
+      add_fill_layer(
+        source = as_mapbox_source(geojsonsf::geo_melbourne),
+        fill_color = c("get", "fillColor")
+      )
+  })
+
+  observeEvent(input$map_onclick, {
+    print(input$map_onclick)
+  })
+
+  output$feature <- renderText({
+    info <- input$map_onclick
+    if (is.null(info)) return("<p>Click on a feature to show its details.</p>")
+
+    whisker::whisker.render(
+      "<p>{{coords.lng}}, {{coords.lat}}</p>
+       <p><b>Layer Id:</b> {{layer_id}}</p>
+       <p><b>Area:</b> {{props.AREASQKM}} km<sup>2</sup></p>
+       <p><b>Name:</b> {{props.SA2_NAME}}</p>", info)
+  })
+}
+
+if (interactive()) shinyApp(view, server)
+```
+

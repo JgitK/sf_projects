@@ -1,0 +1,104 @@
+---
+title: "map practice"
+author: "Jackson"
+date: "2023-11-29"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(flexdashboard)
+library(shiny)
+library(plotly)
+library(lubridate)
+library(tidycensus)
+library(leaflet)
+library(mapdeck)
+library(sf)
+library(mapboxer)
+library(htmlwidgets)
+```
+
+```{r}
+map_data <- read_csv(file_path) |>
+  select(date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
+         category = `Incident Category`, lat = `Latitude`, long = `Longitude`) |>
+  mutate(category = case_when(
+    category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
+    category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
+    TRUE ~ category)
+  )
+
+violent_data <- map_data |>
+  filter(category %in% c("Homicide", "Rape", "Robbery", "Assault",
+                         "Human Trafficking (B)", 
+                         "Human Trafficking (A)"))
+
+property_data <- map_data |>
+  filter(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson"))
+```
+
+```{r}
+server <- function(input, output) {
+  output$map <- renderLeaflet({
+    leaflet(map) |>
+      addTiles() |>
+      setView(lng = -122.43, lat = 37.75, zoom = 11)
+  })
+  
+  incidentsInBounds <- reactive({
+    if (is.null(input$map_bounds))
+      return(map_data[FALSE,])
+    
+    bounds <- input$map_bounds
+    latRng <- range(bounds$north, bounds$south)
+    lngRng <- range(bounds$east, bounds$west)
+    
+    subset(map_data,
+           latitude >= latRng[1] & latitude <= latRng[2] &
+             longitude >= lngRng[1] & longitude <= lngRng[2])
+  })
+  
+   output$barChart <- renderPlot({
+    if (nrow(incidentsInBounds()) == 0)
+      return(NULL)
+  
+    incidentsInBounds |>
+      group_by(year) |>
+      summarize(`Incident Count` = n()) |>
+      ggplot(aes(x = year, y = `Incident Count`)) +
+      geom_col(fill = "#AD7D2E") +
+      scale_x_continuous(breaks = seq(2018, 2023, 1)) +
+      theme_minimal() +
+      theme(
+        plot.background = element_rect(fill = "black", color = "grey"),
+        panel.background = element_rect(fill = "black", color = "grey"),
+        panel.grid = element_blank(), 
+        axis.text = element_text(color = "grey", size = 13),
+        axis.ticks = element_line(color = "grey"),
+        axis.ticks.length = unit(-5, "pt"),
+        axis.title = element_text(color = "grey", size = 13),
+        plot.title = element_text(color = "grey", hjust = 0.5, size = 15),
+        legend.title = element_blank(),
+        legend.background = element_rect(fill = NA),
+        legend.text = element_text(color = "grey"),
+        axis.text.x = element_text(angle = 30, hjust = 1),
+        axis.title.x = element_blank()
+      )
+    
+  })
+}
+
+ui <- fluidPage(
+  # ... other UI elements ...
+  # selectInput("dataset_selector", "Select Dataset", 
+  #             choices = c("map_data", "violent_crime_data", "property_crime_data"),
+  #             selected = "map_data"),
+  # ... other UI elements ...
+  leafletOutput("map"),
+  plotOutput("barBounds")
+)
+
+shinyApp(ui, server)
+```
+
