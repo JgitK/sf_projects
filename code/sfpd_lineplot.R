@@ -1,6 +1,13 @@
-source("code/sfpd_source.R")
+library(tidyverse)
+library(plotly)
+library(lubridate)
+library(htmlwidgets)
+library(scales)
+library(patchwork)
+library(tools)
+library(shiny)
 
-ls()
+#ls()
 
 # font_add_google(name = "Bree Serif",
 #                 family = "breeserif")
@@ -22,6 +29,19 @@ ls()
 #   mutate(year = year + 1,
 #          month = "next_Jan") |>
 #   filter(year != this_year)
+
+new_data <- read_csv("data/raw/sfpd_incidents_120223.csv") |>
+  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
+         p_district = `Police District`, category = `Incident Category`, lat = `Latitude`, long = `Longitude`) |>
+  mutate(category = case_when(
+    category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
+    category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
+    TRUE ~ category
+  )) |>
+  select(category, date, year, neighborhood)
+
+new_data |>
+  distinct(category) |> print(n=50)
 
  lineplot_data <- new_data |>
    mutate(month = month(date, label = T),
