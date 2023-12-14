@@ -1,0 +1,12 @@
+name: sf_incident_reports
+title: sf_incident_reports
+username: jshinyk
+account: jshinyk
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 10775235
+bundleId: 8046885
+url: https://jshinyk.shinyapps.io/sf_incident_reports/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

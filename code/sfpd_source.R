@@ -43,14 +43,14 @@ new_data |>
 
 ###Right now only getting the count for the month as of whatever day it is in that month two months ago from today...
 
-# combined_data <- bind_rows(old_data, new_data) |>
-#   mutate(month = month(date, label = T),
-#          month = factor(month.abb[month], levels = month.abb)) |>
-#   filter(date < floor_date(today(), "month")) |>
-#   group_by(year, month) |>
-#   summarize(count = n(),
-#             avg = mean(count),
-#             category = category)
+combined_data <- bind_rows(old_data, new_data) |>
+  mutate(month = month(date, label = T),
+         month = factor(month.abb[month], levels = month.abb)) |>
+  filter(date < floor_date(today(), "month")) |>
+  group_by(year, month) |>
+  summarize(count = n(),
+            avg = mean(count),
+            category = category)
 
 
 
@@ -66,7 +66,7 @@ new_data |>
 #     category == "Motor Vehicle Theft" | category == "Motor Vehicle Theft?" ~ "Vehicle Theft",
 #     category == "Sex Offenses, Forcible" ~ "Rape",
 #     TRUE ~ category
-#     
+#
 #   ))
 
 ### Define Violent/Property crimes

@@ -1,3 +1,5 @@
 data/
 config.yml
 .Rproj.user
+shiny_app/keys.R
+shiny_app/sf_incidents_new.csv

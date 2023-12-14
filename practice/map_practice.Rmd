@@ -170,8 +170,8 @@ san_fran_ghanistan |>
 
 ```{r}
 file_path <- file.path("/Users/jackson/Documents/sf_projects", "data/raw/sfpd_incidents_120223.csv")
-data <- read_csv("data/raw/sfpd_incidents_120223.csv")
-map_data <- read_csv(file_path) |>
+data <- read_csv("sf_incidents_new.csv")
+map_data <- data |>
   select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
          p_district = `Police District`, category = `Incident Category`, lat = `Latitude`, long = `Longitude`) |>
   mutate(category = case_when(
@@ -251,6 +251,58 @@ map <- map_data %>%
 
 
 ```
+
+```{r}
+# Assuming "map_data" is a data.frame or tibble
+map_data <- map_data %>%
+  filter(!is.na(long) & !is.na(lat))  # Filtering out rows with missing lat or long
+
+# Create a mapdeck map
+map <- mapdeck(style = mapdeck_style("dark"), location = c(-122.4254, 37.7743), zoom = 11) %>%
+  
+  # Add a circle layer for individual points
+  add_circle_layer(
+    data = map_data,
+    lat = "lat",
+    lon = "long",
+    radius = 3,
+    fill_colour = "color",
+    fill_opacity = 0.7,
+    popup = popup
+  ) %>%
+  
+  # Add a cluster layer for aggregated points
+  add_hexagon_layer(
+    data = map_data,
+    lat = "lat",
+    lon = "long",
+    fill_colour = "cluster_color",
+    radius = 30,
+    elevation = 500,
+    elevation_scale = 2,
+    popup = popup
+  ) %>%
+  
+  # Customize appearance
+  mapdeck::mapdeck_style("dark") %>%
+  mapdeck_add_legend("legend", 
+                     data = map_data,
+                     fill_colour = "color",
+                     title = "Legend Title",
+                     title_size = 16,
+                     title_colour = "white",
+                     title_background = "black",
+                     title_position = "top") 
+
+  
+  # Add controls
+  # mapdeck::mapdeck_add_control("zoom", position = "top-left") %>%
+  # mapdeck::mapdeck_add_control("pitch", position = "top-left", height = 80)
+
+# Print the map
+map
+```
+
 
 ```{r}
 htmlwidgets::saveWidget(map, "sfpd_incident_map.html", selfcontained = FALSE, libdir = "lib/")

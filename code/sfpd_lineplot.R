@@ -6,14 +6,15 @@ library(scales)
 library(patchwork)
 library(tools)
 library(shiny)
+library(showtext)
 
 #ls()
 
-# font_add_google(name = "Bree Serif",
-#                 family = "breeserif")
-# font_add_google(name = "Source Serif 4",
-#                 family = "sourceserif4")
-# showtext_auto()
+font_add_google(name = "Helvetica Nue",
+                family = "hn")
+font_add_google(name = "Source Serif 4",
+                family = "sourceserif4")
+showtext_auto()
 # 
 # ?font_add_google
 
@@ -51,18 +52,47 @@ new_data |>
    summarize(count = n(),
              avg = mean(count),
              category = category)
+ 
+ this_year = year(today())
+ this_month = month(today())
+ last_year = this_year - 1
+ two_years = last_year - 1
+ three_years = two_years - 1
 
 last_dec <- lineplot_data |>
   filter(month == "Dec") |>
   mutate(year = year - 1,
          month = "last_Dec") 
 
-### Month of Jan next yr
 next_jan <- lineplot_data |>
   filter(month == "Jan") |>
   mutate(year = year + 1,
          month = "next_Jan") |>
   filter(year != this_year)
+
+monthly_barchart <- data %>%
+  mutate(month = month(date)) %>%
+  group_by(month) %>%
+  summarize(`Incident Count` = n()) %>%
+  ggplot(aes(x = month, y = `Incident Count`)) +
+  geom_col(fill = "#AD7D2E") +
+  scale_x_continuous(breaks = seq(1, 12, 1), labels = month.abb) +
+  theme_minimal() +
+  theme(
+    plot.background = element_rect(fill = "grey", color = "grey"),
+    panel.background = element_rect(fill = "grey", color = "grey"),
+    panel.grid = element_blank(), 
+    axis.text = element_text(color = "black", size = 13),
+    axis.ticks = element_line(color = "black"),
+    axis.ticks.length = unit(-5, "pt"),
+    axis.title = element_text(color = "black", size = 13),
+    plot.title = element_text(color = "black", hjust = 0.5, size = 15),
+    legend.title = element_text(),
+    legend.background = element_rect(fill = NA),
+    legend.text = element_text(color = "black"),
+    axis.text.x = element_text(angle = 40, hjust = 1),
+    axis.title.x = element_blank()
+  )
 
 ### Concatenate
 p2 <- bind_rows(last_dec, lineplot_data, next_jan) |> 
@@ -81,11 +111,6 @@ p2 <- bind_rows(last_dec, lineplot_data, next_jan) |>
   scale_size_manual(breaks = c(FALSE, TRUE),
                     values = c(0.25, 1), guide = "none") +
   scale_color_gradient(breaks = seq(2003, 2023, 10), low = "#365188", high = "#AD7D2E") +
-  # scale_fill_stepsn(colors = c("#365188", "#CCCCCC", "#AD7D2E"),
-  #                   values = rescale(c(min(combined_data$year), c(mean(combined_data$year)), max(combined_data$year))),
-  #                   limits = c(min(combined_data$year), max(combined_data$year))) +
-  # scale_color_viridis_c(breaks = seq(2003, 2023, 4), 
-  #                       guide = guide_colorbar(frame.colour = "white", frame.linewidth = 0.5)) +
   labs(
     x = NULL,
     y = "Count Per Month",
@@ -96,20 +121,20 @@ p2 <- bind_rows(last_dec, lineplot_data, next_jan) |>
     panel.background = element_rect(fill = "black", color = "grey"),
     panel.grid = element_blank(),
     axis.text = element_text(color = "grey", size = 13
-                             #, family = "sourceserif4", cex = 4
+                             , family = "hn"
                              ),
     axis.ticks = element_line(color = "grey"),
     axis.ticks.length = unit(-5, "pt"),
     axis.title = element_text(color = "grey", size = 13
-                              #, family = "sourceserif4", cex = 4
+                              , family = "hn"
                               ),
     plot.title = element_text(color = "grey", hjust = 0.5, size = 15
-                              #, family = "sourceserif4", cex = 4
+                              , family = "hn"
                               ),
     legend.title = element_blank(),
     legend.background = element_rect(fill = NA),
     legend.text = element_text(color = "grey"
-                               #, family = "sourceserif4"
+                               , family = "hn"
                                ),
     legend.key.height = unit(50, "pt")
   ) 
