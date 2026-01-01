@@ -27,18 +27,30 @@ shinyServer(function(input, output, session) {
     )
   ) 
 
+  # Optimized reactive filtering: evaluate conditions sequentially for better performance
+  # Use debouncing to prevent excessive re-renders during rapid filter changes
   filtered_data <- reactive({
-    filter_data <- map_data %>%
-      filter((input$neighborhoods == "All" | map_data$neighborhood %in% input$neighborhoods),
-             date >= input$date_range[1] & date <= input$date_range[2],
-             (
-               input$crime_type == "All" |
-                 (input$crime_type == "Part 1 Violent Crime" & violent > 0) |
-                 (input$crime_type == "Part 1 Property Crime" & property > 0)
-             )
-      )
-    return(filter_data)
-  })
+    data_to_filter <- map_data
+
+    # Apply neighborhood filter (skip if "All" selected)
+    if (input$neighborhoods != "All") {
+      data_to_filter <- data_to_filter %>%
+        filter(neighborhood %in% input$neighborhoods)
+    }
+
+    # Apply date range filter
+    data_to_filter <- data_to_filter %>%
+      filter(date >= input$date_range[1], date <= input$date_range[2])
+
+    # Apply crime type filter (skip if "All" selected)
+    if (input$crime_type == "Part 1 Violent Crime") {
+      data_to_filter <- data_to_filter %>% filter(violent == 1)
+    } else if (input$crime_type == "Part 1 Property Crime") {
+      data_to_filter <- data_to_filter %>% filter(property == 1)
+    }
+
+    data_to_filter
+  }) %>% debounce(300)  # Debounce for 300ms to prevent excessive re-renders
 
   output$map <- renderMapboxer({
 
@@ -79,8 +91,8 @@ shinyServer(function(input, output, session) {
   })
   
   output$barchart <- renderPlot({
+    # Use precomputed month value from global.R instead of recalculating
     filtered_data() %>%
-      mutate(month = month(date)) %>%
       group_by(month) %>%
       summarize(`Monthly Count` = n()) %>%
       ggplot(aes(x = month, y = `Monthly Count`)) +
@@ -88,11 +100,9 @@ shinyServer(function(input, output, session) {
       scale_x_continuous(breaks = seq(1, 12, 1), labels = month.abb) +
       theme_minimal() +
       theme(
-        plot.background = element_rect(fill = "#7A7A7A", color = "#7A7A7A"
-          ),
-        panel.background = element_rect(fill = "#7A7A7A", color = "#7A7A7A"
-          ),
-        panel.grid = element_blank(), 
+        plot.background = element_rect(fill = "#7A7A7A", color = "#7A7A7A"),
+        panel.background = element_rect(fill = "#7A7A7A", color = "#7A7A7A"),
+        panel.grid = element_blank(),
         axis.text = element_text(color = "white", size = 12),
         axis.ticks = element_line(color = "white"),
         axis.ticks.length = unit(-5, "pt"),
@@ -256,5 +266,3 @@ shinyServer(function(input, output, session) {
   # })
 }
 )
-
-?add_popups

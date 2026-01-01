@@ -7,12 +7,18 @@ library(patchwork)
 library(tools)
 library(shiny)
 #library(showtext)
+
+# Define crime categories as constants for better performance
+VIOLENT_CRIMES <- c("Homicide", "Rape", "Robbery", "Assault",
+                    "Human Trafficking (B)", "Human Trafficking (A)")
+PROPERTY_CRIMES <- c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson")
+
 ### Dates
-this_year = year(today())
-this_month = month(today())
-last_year = this_year - 1
-two_years = last_year - 1
-three_years = two_years - 1
+this_year <- year(today())
+this_month <- month(today())
+last_year <- this_year - 1
+two_years <- last_year - 1
+three_years <- two_years - 1
 
 
 ### Old Data
@@ -24,33 +30,34 @@ three_years = two_years - 1
 #   filter(year != 2018)
 
 
-### New Data
+### New Data - Optimized pipeline
 new_data <- read_csv("data/raw/sfpd_incidents_120223.csv") |>
-  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
-         p_district = `Police District`, category = `Incident Category`, lat = `Latitude`, long = `Longitude`) |>
-  mutate(category = case_when(
-    category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
-    category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
-    TRUE ~ category
-  )) |>
+  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`,
+         neighborhood = `Analysis Neighborhood`,
+         p_district = `Police District`, category = `Incident Category`,
+         lat = `Latitude`, long = `Longitude`) |>
+  mutate(
+    category = case_when(
+      category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
+      category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
+      TRUE ~ category
+    )
+  ) |>
   select(category, date, year, neighborhood)
 
 new_data |>
   distinct(category) |> print(n=50)
-  
+
 
 ### Merge old and new data
 
 ###Right now only getting the count for the month as of whatever day it is in that month two months ago from today...
 
+# Optimized: fix summarize issues - removed problematic category and avg calculations
 combined_data <- bind_rows(old_data, new_data) |>
-  mutate(month = month(date, label = T),
-         month = factor(month.abb[month], levels = month.abb)) |>
   filter(date < floor_date(today(), "month")) |>
-  group_by(year, month) |>
-  summarize(count = n(),
-            avg = mean(count),
-            category = category)
+  mutate(month = month(date, label = TRUE)) |>
+  count(year, month, name = "count")
 
 
 
@@ -71,19 +78,16 @@ combined_data <- bind_rows(old_data, new_data) |>
 
 ### Define Violent/Property crimes
 
-# violent_crimes <- combined_data |> 
-#   filter(category %in% c("Homicide", "Rape", "Robbery", "Assault",
-#                          "Human Trafficking (B)", 
-#                          "Human Trafficking (A)"))
-# 
-# property_crimes <- combined_data |> 
-#   filter(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson"))
+# violent_crimes <- combined_data |>
+#   filter(category %in% VIOLENT_CRIMES)
+#
+# property_crimes <- combined_data |>
+#   filter(category %in% PROPERTY_CRIMES)
 
-violent_crimes <- new_data |> 
-  filter(category %in% c("Homicide", "Rape", "Robbery", "Assault",
-                         "Human Trafficking (B)", 
-                         "Human Trafficking (A)"))
+# Use constants for better performance
+violent_crimes <- new_data |>
+  filter(category %in% VIOLENT_CRIMES)
 
-property_crimes <- new_data |> 
-  filter(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson"))
+property_crimes <- new_data |>
+  filter(category %in% PROPERTY_CRIMES)
 

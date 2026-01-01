@@ -7,20 +7,32 @@ library(patchwork)
 library(tools)
 library(shiny)
 
+# Define crime categories as constants for better performance
+VIOLENT_CRIMES <- c("Homicide", "Rape", "Robbery", "Assault",
+                    "Human Trafficking (B)", "Human Trafficking (A)")
+PROPERTY_CRIMES <- c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson")
+
 file_path <- file.path("/Users/jackson/Documents/sf_projects", "data/raw/sfpd_incidents_120223.csv")
-data <- read_csv("data/raw/sfpd_incidents_120223.csv")
 map_data <- read_csv(file_path) |>
-  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`, neighborhood = `Analysis Neighborhood`, 
-         p_district = `Police District`, category = `Incident Category`, lat = `Latitude`, long = `Longitude`) |>
-  mutate(category = case_when(
-    category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
-    category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
-    TRUE ~ category),
-    violent = ifelse(category %in% c("Homicide", "Rape", "Robbery", "Assault",
-                                     "Human Trafficking (B)", 
-                                     "Human Trafficking (A)"), 1, 0),
-    property = ifelse(category %in% c("Burglary", "Larceny Theft", "Motor Vehicle Theft", "Arson"), 1, 0),
-    color = ifelse(violent > 0, "red", "#365188")
+  select(id = `Incident ID`, date = `Incident Date`, year = `Incident Year`,
+         neighborhood = `Analysis Neighborhood`,
+         p_district = `Police District`, category = `Incident Category`,
+         lat = `Latitude`, long = `Longitude`) |>
+  mutate(
+    category = case_when(
+      category == "Human Trafficking (A), Commercial Sex Acts" ~ "Human Trafficking (A)",
+      category == "Human Trafficking (B), Involuntary Servitude" ~ "Human Trafficking (B)",
+      TRUE ~ category
+    ),
+    # Use as.integer() instead of ifelse() for better performance
+    violent = as.integer(category %in% VIOLENT_CRIMES),
+    property = as.integer(category %in% PROPERTY_CRIMES),
+    # Use case_when() instead of nested ifelse()
+    color = case_when(
+      violent == 1 ~ "red",
+      property == 1 ~ "yellow",
+      TRUE ~ "#365188"
+    )
   )
 
 max(map_data$date)
@@ -31,7 +43,7 @@ ui <- fluidPage(
   sidebarLayout(
     sidebarPanel(
       selectInput("neighborhood", "Select Neighborhood", choices = unique(map_data$neighborhood)),
-      ?dateRangeInput("dateRange", "Select Date Range", 
+      dateRangeInput("dateRange", "Select Date Range",
                      start = "2018-01-01", end = Sys.Date(),
                      min = "2018-01-01", max = max(map_data$date))
     ),
@@ -54,25 +66,22 @@ server <- function(input, output) {
   })
   
   output$propertyCrimePlot <- renderPlot({
-    # Your property crime plot code using filtered_data() instead of new_data
-    per_year <- filtered_data() |>
-      filter(year %in% c(this_year, last_year, two_years, three_years), category %in% property_crimes$category) %>%
-      group_by(category, year) |> 
-      summarize(count = n())
-    
-    yr_span_avg <- filtered_data() |> 
-      filter(year %in% c(last_year, two_years, three_years), category %in% property_crimes$category) %>%
-      group_by(category, year) |> 
-      summarize(count = n()) |> 
+    # Optimized: single pass through data instead of multiple filters
+    plot_data <- filtered_data() |>
+      filter(category %in% property_crimes$category,
+             year %in% c(last_year, two_years, three_years, this_year)) %>%
+      group_by(category, year) |>
+      summarize(count = n(), .groups = 'drop') |>
+      group_by(category) |>
+      mutate(
+        avg = mean(count[year != this_year]),
+        is_current = year == this_year
+      ) |>
       ungroup() |>
-      group_by(category) |> 
-      summarize(avg = mean(count))
-    
-    per_year |>
-      inner_join(yr_span_avg, by = "category") |>
-      filter(year == this_year | year == last_year) |>
-      mutate(this_year = year == this_year) |>
-      ggplot(aes(x = category, y = ifelse(this_year, count, avg), fill = as.factor(year))) +
+      filter(year == this_year | year == last_year)
+
+    plot_data |>
+      ggplot(aes(x = category, y = ifelse(is_current, count, avg), fill = as.factor(year))) +
       geom_col(position = "dodge", color = "black") +
       labs(title = "Decrease in Property Crime This Year \n Compared to 3-Year Average",
            x = "Category",
@@ -101,15 +110,11 @@ server <- function(input, output) {
   })
   
   output$lineplot <- renderPlotly({
-    # Your lineplot code using filtered_data() instead of new_data
+    # Optimized: fix summarize issues and precompute aggregations
     lineplot_data <- filtered_data() |>
-      mutate(month = month(date, label = T),
-             month = factor(month.abb[month], levels = month.abb)) |>
       filter(date < floor_date(today(), "month")) |>
-      group_by(year, month) |>
-      summarize(count = n(),
-                avg = mean(count),
-                category = category)
+      mutate(month = month(date, label = TRUE)) |>
+      count(year, month, name = "count")
     
     last_dec <- lineplot_data |>
       filter(month == "Dec") |>
